@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import wave
+from functools import lru_cache
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -15,6 +16,19 @@ import sounddevice as sd
 from yaspin import yaspin, Spinner
 
 loader_spinner = Spinner(["✵ ", "✷ ", "✸ ", "✹ "], 500)
+
+
+@lru_cache(maxsize=1)
+def load_speech_model(model_name: str):
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as error:
+        raise RuntimeError(
+            "Transcription dependencies are missing. Run "
+            "`python -m pip install -e .`."
+        ) from error
+
+    return WhisperModel(model_name, device="cpu", compute_type="int8")
 
 
 def record_audio() -> bytes:
@@ -53,16 +67,8 @@ def record_audio() -> bytes:
 
 
 def transcribe(audio_wav: bytes) -> str:
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as error:
-        raise RuntimeError(
-            "Transcription dependencies are missing. Run "
-            "`python -m pip install -e .`."
-        ) from error
-
     model_name = os.environ.get("ZIPERFLOW_MODEL", "base")
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    model = load_speech_model(model_name)
     segments, _ = model.transcribe(io.BytesIO(audio_wav), vad_filter=True)
     transcript = " ".join(segment.text.strip() for segment in segments).strip()
     if not transcript:
@@ -134,33 +140,34 @@ def rewrite_prompt(transcript: str) -> str:
 
 def main() -> int:
     print("ZiperFlow ✦\n")
+    print("Press Ctrl+C at any time to quit.")
 
     try:
-        input("Press Enter to start recording.")
-        audio = record_audio()
-        with yaspin(loader_spinner, text="Transcribing audio..."):
-            transcript = transcribe(audio)
-        with yaspin(loader_spinner, text="Writing your agent prompt..."):
-            prompt = rewrite_prompt(transcript)
-        print(f"\nYour agent-ready prompt:\n\n{prompt}")
+        while True:
+            try:
+                input("\nPress Enter to start recording.")
+                audio = record_audio()
+                with yaspin(loader_spinner, text="Transcribing audio..."):
+                    transcript = transcribe(audio)
+                with yaspin(loader_spinner, text="Writing your agent prompt..."):
+                    prompt = rewrite_prompt(transcript)
+                print(f"\nYour agent-ready prompt:\n\n{prompt}")
 
-        try:
-            pyperclip.copy(prompt)
-        except pyperclip.PyperclipException as error:
-            print(f"\nCould not copy to clipboard: {error}", file=sys.stderr)
-            print("You can still select and copy the prompt above.")
-            return 1
-
-        print("\nCopied to clipboard. Switch apps and press Ctrl+V.")
-        return 0
+                try:
+                    pyperclip.copy(prompt)
+                except pyperclip.PyperclipException as error:
+                    print(f"\nCould not copy to clipboard: {error}", file=sys.stderr)
+                    print("You can still select and copy the prompt above.")
+                else:
+                    print("\nCopied to clipboard. Switch apps and press Ctrl+V.")
+            except RuntimeError as error:
+                print(f"\nError: {error}", file=sys.stderr)
+                print("Press Enter to try again, or Ctrl+C to quit.")
     except KeyboardInterrupt:
-        print("\nCancelled.")
+        print("\nZiperFlow closed.")
         return 130
     except EOFError:
         print("\nInput closed before recording completed.", file=sys.stderr)
-        return 1
-    except RuntimeError as error:
-        print(f"\nError: {error}", file=sys.stderr)
         return 1
 
 
