@@ -12,6 +12,10 @@ import numpy as np
 import pyperclip
 import sounddevice as sd
 
+from yaspin import yaspin, Spinner
+
+loader_spinner = Spinner(["✵ ", "✷ ", "✸ ", "✹ "], 500)
+
 
 def record_audio() -> bytes:
     sample_rate = int(sd.query_devices(kind="input")["default_samplerate"])
@@ -58,7 +62,6 @@ def transcribe(audio_wav: bytes) -> str:
         ) from error
 
     model_name = os.environ.get("ZIPERFLOW_MODEL", "base")
-    print(f"Loading speech model '{model_name}'...")
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
     segments, _ = model.transcribe(io.BytesIO(audio_wav), vad_filter=True)
     transcript = " ".join(segment.text.strip() for segment in segments).strip()
@@ -135,8 +138,10 @@ def main() -> int:
     try:
         input("Press Enter to start recording.")
         audio = record_audio()
-        print("❊ Transcribing and writing your agent prompt...")
-        prompt = rewrite_prompt(transcribe(audio))
+        with yaspin(loader_spinner, text="Transcribing audio..."):
+            transcript = transcribe(audio)
+        with yaspin(loader_spinner, text="Writing your agent prompt..."):
+            prompt = rewrite_prompt(transcript)
         print(f"\nYour agent-ready prompt:\n\n{prompt}")
 
         try:

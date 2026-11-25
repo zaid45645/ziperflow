@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=1.24",
     "pyperclip>=1.9",
     "sounddevice>=0.5",
+    "yaspin>=3.5,<4",
 ]
 
 [project.scripts]
